@@ -161,7 +161,6 @@ def calculate_dkin_distances(trajectory1, trajectory2):
     speeds = np.concatenate([trajectory1[:, 1], trajectory2[:, 1]])  # Standard deviation of speed
     sigma = np.std(speeds)
     
-    # Check for NaNs in speeds
     if np.isnan(speeds).any():
         print("NaN values found in speed data.")
 
@@ -222,7 +221,7 @@ def load_distance_matrix(filename):
     return np.load(filename, allow_pickle=False)
 
 # Main function to compute or load the distance matrix
-def compute_or_load_distances(all_trajectories, filename='haversinematrix.npy', num_processes=16):
+def compute_or_load_distances(all_trajectories, filename='haversine_dist_matrix.npy', num_processes=16):
     if (os.path.exists(filename)):
         print("Loading existing distance matrix.")
         return load_distance_matrix(filename)
@@ -232,7 +231,7 @@ def compute_or_load_distances(all_trajectories, filename='haversinematrix.npy', 
         save_distance_matrix(matrix, filename)
         return matrix
     
-def compute_or_load_kindistances(all_trajectories, filename='dkinematicmatrix.npy', num_processes=16):
+def compute_or_load_kindistances(all_trajectories, filename='Hausforff2_matrix.npy', num_processes=16):
     if (os.path.exists(filename)):
         print("Loading existing distance matrix.")
         return load_distance_matrix(filename)
@@ -785,23 +784,37 @@ if __name__ == "__main__":
     simplified_7_trajectories = [np.array(list(zip(traj['course'], traj['speed']))) for traj in simplified_7_trajectories]
 
 
-    distance_kinmatrix = compute_or_load_kindistances(simplified_6_trajectories, num_processes=num_processes)
+    distance_kinmatrix = compute_or_load_kindistances(simplified_2_trajectories, num_processes=num_processes)
     distance_kinmatrix = np.abs(distance_kinmatrix)
     distance_kinmatrixcopy = distance_kinmatrix
     print(distance_kinmatrix)
 
     all_distances = distance_kinmatrix[np.triu_indices_from(distance_kinmatrix, k=1)]
 
+    threshold = np.percentile(all_distances, 75)
+    k = 5  
+    recommended_eps = plot_k_distance(distance_kinmatrix, k)
+    print(f"Suggested 'eps' value for DBSCAN: {recommended_eps}")
+    
+    min_samples_values = range(1, 42) 
+    best_score = -1
+    best_min_samples = None
+    
+    for min_samples in min_samples_values:
+        db = DBSCAN(eps=recommended_eps, min_samples=min_samples, metric="precomputed")
+        labels2 = db.fit_predict(distance_kinmatrix)
+        
+        if len(set(labels2)) > 2:  # Valid cluster formation check
+            score = silhouette_score(distance_kinmatrix, labels2, metric="precomputed")
+            if score > best_score:
+                best_score = score
+                best_min_samples = min_samples
 
-    mean_distance = np.mean(all_distances)
-    median_distance = np.median(all_distances)
-    std_deviation = np.std(all_distances)
-    percentile90 = np.percentile(all_distances, 74)
+    print(f"Optimal 'min_samples': {best_min_samples} with Silhouette Score: {best_score}")
+    # Perform clustering with the best parameters
+    db = DBSCAN(eps=recommended_eps, min_samples=best_min_samples, metric="precomputed")
+    labels2 = db.fit_predict(distance_kinmatrix)
 
-    print("Mean distance:", mean_distance/100)
-    print("Median distance:", median_distance/100)
-    print("Standard deviation:", std_deviation/100)
-    print("Percentile 90:", percentile90/100)
 
     # Perform clustering with the best parameters
     best_clustering = AgglomerativeClustering(distance_threshold=percentile90, n_clusters=None, linkage='average', metric='precomputed')
